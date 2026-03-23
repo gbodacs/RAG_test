@@ -45,7 +45,7 @@ async function indexDocuments(docs: string[]) {
 
   // 2. pontok létrehozása
   const points = docs.map((doc, i) => ({
-    id: i,
+    id: Date.now() + i, // Unique id based on timestamp
     vector: vectors[i],
     payload: {text: doc}
   }))
@@ -57,9 +57,8 @@ async function indexDocuments(docs: string[]) {
   await client.upsert(collName, {points})
 }
 
-export async function upload_db() {
-  console.log("Indexing documents...")
-  await indexDocuments([
+export async function upload_db(texts?: string[]) {
+  const docs = texts || [
     "George Russell, a Mercedes brit versenyzője nyerte a Forumla–1-es Kínai Nagydíj szombati sprintfutamát. A 28 éves pilóta mögött a két Ferrari ért célba: a monacói Charles Leclerc végzett a második, a hétszeres világbajnok Lewis Hamilton pedig a harmadik helyen",
     "A 19 körös viadal rajtjánál a pole pozícióból startoló Russell ugyan jól jött el és megőrizte a vezetést, mögötte számos helycsere történt. Hamilton és a vb-címvédő Lando Norris (McLaren) egyaránt kiválóan indult, ők ketten értek oda közvetlenül Russell mögé az első kanyarban, de ott volt „a sűrűjében” Leclerc és Oscar Piastri (McLaren) is, írta beszámolójában a Magyar Távirati Iroda. Közben a startot nagyon elrontó Andrea Kimi Antonelli (Mercedes) túl rövidet fékezett és nekiment Isack Hadjarnak (Red Bull), amiért később 10 másodperces büntetést kapott",
     "Az élen Hamilton és Russell között alakult ki körökön át tartó oda-vissza előzgetés, Leclerc közben szorosan követte a duót a harmadik helyen, de nem próbálkozott előzéssel. A hatodik körben Russellnek sikerült eltávolodnia Hamiltontól, akit aztán némi látványos küzdelmet követően Leclerc is lehagyott. Hét körrel a leintés előtt a pályára hajtott a biztonsági autó Nico Hülkenberg (Audi) műszaki hiba miatt megállt autójának mentése idejére, a versenyzők jelentős része pedig a boxba hajtott kerékcserére. Az utolsó három kör az összesűrűsödött mezőny és a friss abroncsok miatt még ígért izgalmakat, végül azonban maradt a Russell, Leclerc, Hamilton dobogó",
@@ -70,7 +69,9 @@ export async function upload_db() {
     "Russellnek műszaki gondja volt a pole pozícióról döntő harmadik szakaszban, így riválisaival ellentétben csak egy gyors kört tudott teljesíteni.",
     "Hamilton mellől a másik Ferrarival a monacói Charles Leclerc rajtolhat, a harmadik sort pedig a vb-címvédő McLaren foglalja el: az ausztrál Oscar Piastri ötödik, a világbajnok brit Lando Norris pedig hatodik lett az időmérőn. A négyszeres vb-győztes Max Verstappen, a Red Bull holland versenyzője a nyolcadik pozícióból startolhat",
     "Az 56 körös Kínai Nagydíj vasárnap 8 órakor kezdődik Sanghajban."
-  ])
+  ];
 
-  console.log("Documents indexed successfully.")
+  console.log("Indexing documents...");
+  await indexDocuments(docs);
+  console.log("Documents indexed successfully.");
 }

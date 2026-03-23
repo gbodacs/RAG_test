@@ -1,7 +1,7 @@
 import ollama from "ollama"
 import { QdrantClient } from "@qdrant/js-client-rest"
 
-async function embedQuery(query: string) {
+export async function embedQuery(query: string) {
   const res = await ollama.embeddings({
     model: "nomic-embed-text",
     prompt: query
@@ -12,7 +12,7 @@ async function embedQuery(query: string) {
 
 const client = new QdrantClient( {url: "http://localhost:6333"} )
 
-async function searchVectors(queryEmbedding: number[]) {
+export async function searchVectors(queryEmbedding: number[]) {
   const results = await client.search("contracts", {
     vector: queryEmbedding,
     limit: 20
@@ -21,7 +21,7 @@ async function searchVectors(queryEmbedding: number[]) {
   return results
 }
 
-function extractCandidates(results: any[]) {
+export function extractCandidates(results: any[]) {
   return results.map(r => ({
     text: r.payload.text,
     contractId: r.payload.contract_id,
@@ -30,7 +30,7 @@ function extractCandidates(results: any[]) {
   }))
 }
 
-async function rerank(query: string, docs: any[]) {
+export async function rerank(query: string, docs: any[]) {
 
   const scored = await Promise.all(
     docs.map(async d => {
@@ -62,11 +62,11 @@ Score:
   return scored.slice(0, 3)
 }
 
-function buildContext(chunks: any[]) {
+export function buildContext(chunks: any[]) {
   return chunks.map(c => c.text).join("\n")
 }
 
-async function askLLM(question: string, context: string) {
+export async function askLLM(question: string, context: string) {
   const res = await ollama.chat({
     model: "qwen3.5:9b",
     think:false,
