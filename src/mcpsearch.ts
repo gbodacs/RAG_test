@@ -20,12 +20,12 @@ AVAILABLE TOOLS:
 
 RULES:
 
-- You MUST respond in EXACTLY one of the following formats:
+- You MUST respond in **EXACTLY** one of the following formats:
 
 TOOL: <tool_name>
 INPUT: <input>
 
-OR
+**OR**
 
 FINAL: <final answer>
 
@@ -72,6 +72,7 @@ async function callOllama(messages: Message[]) {
     },
     body: JSON.stringify({
       model: "qwen3.5:9b",
+      think: false,
       messages,
       stream: false
     })
@@ -113,22 +114,23 @@ const tools = {
 function parseLLMResponse(text: string): ToolCall {
   const trimmed = text.trim();
 
+  const toolMatch = trimmed.match(/TOOL:\s*(\w+)[\s\S]*INPUT:\s*([\s\S]*)/);
+
+  if (toolMatch) {
+    console.log("-Parsed TOOL call for tool");
+    return {
+      type: "tool",
+      name: toolMatch[1].trim(),
+      input: toolMatch[2].trim()
+    };
+  }
+
   if (trimmed.startsWith("FINAL:")) {
     console.log("-Parsed FINAL answer.");
 
     return {
       type: "final",
       output: trimmed.replace("FINAL:", "").trim()
-    };
-  }
-
-  const toolMatch = trimmed.match(/TOOL:\s*(\w+)[\s\S]*INPUT:\s*([\s\S]*)/);
-
-  if (toolMatch) {
-    return {
-      type: "tool",
-      name: toolMatch[1].trim(),
-      input: toolMatch[2].trim()
     };
   }
 
@@ -164,13 +166,11 @@ export async function runAgent(userInput: string) {
         content:
           "FORMAT ERROR. You must respond ONLY in TOOL or FINAL format."
       });
-      console.log("-LLM response could not be parsed as TOOL or FINAL.");
       continue;
     }
 
     // FINAL answer ready
     if (parsed.type === "final") {
-      console.log("-LLM provided FINAL answer.");
       return parsed.output;
     }
 
