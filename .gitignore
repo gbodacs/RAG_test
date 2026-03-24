@@ -8,3 +8,7 @@ storage/
 node_modules/
 
 dist/
+
+qdrant
+
+.qdrant-initialized
