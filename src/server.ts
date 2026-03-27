@@ -4,7 +4,7 @@ import bodyParser from 'body-parser';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { upload_db } from './upload.js';
-import { query } from './search.js';
+import { query } from './vectorsearch.js';
 import { runAgent } from './mcpsearch.js';
 
 declare module 'express-session' {
@@ -61,7 +61,7 @@ app.get('/login', (req, res) => {
 app.post('/login', (req, res) => {
   const { username, password } = req.body;
   // Simple authentication - in production, use proper auth
-  if (username === 'admin' && password === 'password') {
+  if (username === 'a' && password === 'p') {
     req.session.loggedIn = true;
     res.redirect('/');
   } else {

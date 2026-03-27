@@ -1,4 +1,4 @@
-import { query } from "./search.js";
+import { query } from "./vectorsearch.js";
 import { upload_db } from "./upload.js";
 
 

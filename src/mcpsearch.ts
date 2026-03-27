@@ -1,5 +1,5 @@
 import ollama from "ollama"
-import { embedQuery, searchVectors, extractCandidates, rerank, buildContext, askLLM } from './search.js';
+import { embedQuery, searchVectors, extractCandidates, rerank, buildContext, askLLM } from './vectorsearch.js';
 
 export const SYSTEM_PROMPT = `
 You are an AI agent with access to tools.
