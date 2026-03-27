@@ -1,5 +1,6 @@
 import ollama from "ollama"
 import { embedQuery, searchVectors, extractCandidates, rerank, buildContext, askLLM } from './vectorsearch.js';
+import { web_search } from './websearch.js';
 
 export const SYSTEM_PROMPT = `
 You are an AI agent with access to tools.
@@ -99,12 +100,7 @@ const tools = {
   },
 
   async web_search(input: string): Promise<string> {
-    // Minimal példa – cseréld saját megoldásra
-    const res = await fetch(
-      `https://duckduckgo.com/?q=${encodeURIComponent(input)}`
-    );
-    console.log("-web_search response status:", res.status);
-    return await res.text();
+    return await web_search(input);
   }
 };
 
