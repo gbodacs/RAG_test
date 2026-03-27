@@ -5,6 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { upload_db } from './upload.js';
 import { query } from './vectorsearch.js';
+import { translateText } from './translate.js';
 import { runAgent } from './mcpsearch.js';
 
 declare module 'express-session' {
@@ -154,6 +155,45 @@ app.post('/advanced-chat', requireAuth, async (req, res) => {
       res.status(500).json({ success: false, aiMessage: 'Error processing query.' });
     } else {
       res.render('advanced-chat', { messages: [{ user: message, ai: 'Error processing query.' }], currentPage: 'advanced-chat' });
+    }
+  }
+});
+
+app.get('/translate', requireAuth, (req, res) => {
+  res.render('translate', { translationResult: null, translatedText: null, currentPage: 'translate' });
+});
+
+app.post('/translate', requireAuth, async (req, res) => {
+  const { sourceText, sourceLanguage, targetLanguage } = req.body;
+  
+  try {
+    if (!sourceText || sourceText.trim() === '') {
+      return res.status(400).json({ success: false, error: 'Please provide text to translate.' });
+    }
+
+    if (sourceLanguage === targetLanguage) {
+      return res.status(400).json({ success: false, error: 'Source and target languages must be different.' });
+    }
+
+    const translatedText = await translateText(sourceText, sourceLanguage, targetLanguage);
+
+    // Check if this is an AJAX request
+    const isAjax = req.headers.accept && req.headers.accept.includes('application/json');
+
+    if (isAjax) {
+      // Return JSON for AJAX requests
+      res.json({ success: true, translatedText: translatedText });
+    } else {
+      // Return HTML for regular form submissions
+      res.render('translate', { translationResult: true, translatedText: translatedText, currentPage: 'translate' });
+    }
+  } catch (error) {
+    console.error('Translation error:', error);
+
+    if (req.headers.accept && req.headers.accept.includes('application/json')) {
+      res.status(500).json({ success: false, error: 'Error processing translation.' });
+    } else {
+      res.render('translate', { translationResult: false, translatedText: null, currentPage: 'translate' });
     }
   }
 });
