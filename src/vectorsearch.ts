@@ -1,6 +1,12 @@
 import ollama from "ollama"
 import { QdrantClient } from "@qdrant/js-client-rest"
 
+type QueryCallbacks = {
+  onStatus?: (text: string) => void;
+  onPartial?: (text: string) => void;
+  onError?: (text: string) => void;
+}
+
 export async function embedQuery(query: string) {
   const res = await ollama.embeddings({
     model: "nomic-embed-text",
@@ -10,7 +16,7 @@ export async function embedQuery(query: string) {
   return res.embedding
 }
 
-const client = new QdrantClient( {url: "http://localhost:6333"} )
+const client = new QdrantClient({ url: "http://localhost:6333" })
 
 export async function searchVectors(queryEmbedding: number[]) {
   const results = await client.search("contracts", {
@@ -66,14 +72,13 @@ export function buildContext(chunks: any[]) {
   return chunks.map(c => c.text).join("\n")
 }
 
-export async function askLLM(question: string, context: string) {
-  const res = await ollama.chat({
-    model: "qwen3.5:9b",
-    think:false,
-    messages: [
-      {
-        role: "user",
-        content: `
+export async function askLLM(question: string, context: string, callbacks: QueryCallbacks = {}) {
+  callbacks.onStatus?.("AI válasz készül...")
+
+  const messages = [
+    {
+      role: "user",
+      content: `
 Use the context to answer.
 
 Context:
@@ -82,30 +87,49 @@ ${context}
 Question:
 ${question}
 `
-      }
-    ]
+    }
+  ]
+
+  const response = await ollama.chat({
+    model: "qwen3.5:9b",
+    think: false,
+    stream: true,
+    messages
   })
 
-  return res.message.content
+  let answer = ""
+  let lastText = ""
+
+  if (typeof (response as any)[Symbol.asyncIterator] === "function") {
+    for await (const part of response as AsyncIterable<any>) {
+      const chunk = part?.message?.content ?? ""
+      if (!chunk || chunk === lastText) continue
+      lastText = chunk
+      answer = chunk
+      callbacks.onPartial?.(answer)
+    }
+  } else {
+    answer = (response as any).message?.content || ""
+    callbacks.onPartial?.(answer)
+  }
+
+  callbacks.onStatus?.("AI válasz kész")
+  return answer
 }
 
-export async function query(question: string) 
-{
-
+export async function query(question: string, callbacks: QueryCallbacks = {}) {
+  callbacks.onStatus?.("MCP adatbázisban keresek...")
   const embedding = await embedQuery(question)
-console.log("0")
   const vectorResults = await searchVectors(embedding)
-console.log("1")
   const candidates = extractCandidates(vectorResults)
-console.log("2")
+  callbacks.onStatus?.("Legrelevánsabb dokumentumokat választom ki...")
   const bestChunks = await rerank(question, candidates)
-console.log("3")
   const context = buildContext(bestChunks)
-console.log("4")
-  const answer = await askLLM(question, context)
+  callbacks.onStatus?.("Választ készítek a talált tartalom alapján...")
+  const answer = await askLLM(question, context, callbacks)
 
   return {
     answer,
-    contracts: [...new Set(bestChunks.map(c => c.contractId))]
+    contracts: Array.from(new Set(bestChunks.map(c => c.contractId)))
   }
 }

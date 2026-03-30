@@ -46,6 +46,17 @@ function requireAuth(req: express.Request, res: express.Response, next: express.
   }
 }
 
+function setupStreamHeaders(res: express.Response) {
+  res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+}
+
+function sendStreamEvent(res: express.Response, event: { type: 'status' | 'partial' | 'final' | 'error' | 'done'; text?: string }) {
+  res.write(JSON.stringify(event) + '\n');
+}
+
 // Routes
 app.get('/', (req, res) => {
   if (req.session.loggedIn) {
@@ -127,6 +138,26 @@ app.post('/chat', requireAuth, async (req, res) => {
   }
 });
 
+app.post('/chat-stream', requireAuth, async (req, res) => {
+  const { message } = req.body;
+  setupStreamHeaders(res);
+
+  try {
+    const response = await query(message, {
+      onStatus: (text) => sendStreamEvent(res, { type: 'status', text }),
+      onPartial: (text) => sendStreamEvent(res, { type: 'partial', text })
+    });
+
+    sendStreamEvent(res, { type: 'final', text: response.answer });
+    sendStreamEvent(res, { type: 'done' });
+  } catch (error) {
+    console.error('Chat stream error:', error);
+    sendStreamEvent(res, { type: 'error', text: 'Error processing query.' });
+  } finally {
+    res.end();
+  }
+});
+
 app.get('/advanced-chat', requireAuth, (req, res) => {
   res.render('advanced-chat', { messages: [], currentPage: 'advanced-chat' });
 });
@@ -156,6 +187,26 @@ app.post('/advanced-chat', requireAuth, async (req, res) => {
     } else {
       res.render('advanced-chat', { messages: [{ user: message, ai: 'Error processing query.' }], currentPage: 'advanced-chat' });
     }
+  }
+});
+
+app.post('/advanced-chat-stream', requireAuth, async (req, res) => {
+  const { message } = req.body;
+  setupStreamHeaders(res);
+
+  try {
+    const response = await runAgent(message, {
+      onStatus: (text) => sendStreamEvent(res, { type: 'status', text }),
+      onPartial: (text) => sendStreamEvent(res, { type: 'partial', text })
+    });
+
+    sendStreamEvent(res, { type: 'final', text: response });
+    sendStreamEvent(res, { type: 'done' });
+  } catch (error) {
+    console.error('Advanced chat stream error:', error);
+    sendStreamEvent(res, { type: 'error', text: 'Error processing query.' });
+  } finally {
+    res.end();
   }
 });
 
@@ -195,6 +246,36 @@ app.post('/translate', requireAuth, async (req, res) => {
     } else {
       res.render('translate', { translationResult: false, translatedText: null, currentPage: 'translate' });
     }
+  }
+});
+
+app.post('/translate-stream', requireAuth, async (req, res) => {
+  const { sourceText, sourceLanguage, targetLanguage } = req.body;
+  setupStreamHeaders(res);
+
+  try {
+    if (!sourceText || sourceText.trim() === '') {
+      sendStreamEvent(res, { type: 'error', text: 'Please provide text to translate.' });
+      return res.end();
+    }
+
+    if (sourceLanguage === targetLanguage) {
+      sendStreamEvent(res, { type: 'error', text: 'Source and target languages must be different.' });
+      return res.end();
+    }
+
+    const translatedText = await translateText(sourceText, sourceLanguage, targetLanguage, {
+      onStatus: (text) => sendStreamEvent(res, { type: 'status', text }),
+      onPartial: (text) => sendStreamEvent(res, { type: 'partial', text })
+    });
+
+    sendStreamEvent(res, { type: 'final', text: translatedText });
+    sendStreamEvent(res, { type: 'done' });
+  } catch (error) {
+    console.error('Translation stream error:', error);
+    sendStreamEvent(res, { type: 'error', text: 'Error processing translation.' });
+  } finally {
+    res.end();
   }
 });
 

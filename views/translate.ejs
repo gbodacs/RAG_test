@@ -83,6 +83,7 @@
                             <p class="text-gray-400 italic">Translation will appear here...</p>
                         <% } %>
                     </div>
+                    <p id="translateStatus" class="mt-2 text-sm text-gray-500">Ready to translate.</p>
                 </div>
 
                 <!-- Submit Button -->
@@ -126,16 +127,20 @@
 
             // Disable button and show loading state
             submitBtn.disabled = true;
+            const statusText = document.getElementById('translateStatus');
             submitText.textContent = 'Translating...';
             submitIcon.style.display = 'none';
             targetTextDiv.innerHTML = '<p class="text-gray-400 italic">Translating...</p>';
+            statusText.textContent = 'Kapcsolódás az AI-hoz...';
 
             try {
-                const response = await fetch('/translate', {
+                let currentTranslatedText = '';
+
+                const response = await fetch('/translate-stream', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Accept': 'application/json'
+                        'Accept': 'application/x-ndjson'
                     },
                     body: JSON.stringify({
                         sourceText: sourceText,
@@ -144,15 +149,70 @@
                     })
                 });
 
-                const data = await response.json();
-
-                if (data.success) {
-                    targetTextDiv.innerHTML = '<p class="text-gray-900 whitespace-pre-wrap">' + escapeHtml(data.translatedText) + '</p>';
-                } else {
-                    targetTextDiv.innerHTML = '<p class="text-red-600">Error: ' + escapeHtml(data.error || 'Translation failed') + '</p>';
+                if (!response.ok || !response.body) {
+                    const errorText = await response.text();
+                    throw new Error(errorText || 'Stream request failed');
                 }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                function mergeTranslatedText(currentText, incomingText) {
+                    if (!incomingText) return currentText;
+                    if (incomingText.startsWith(currentText)) {
+                        return incomingText;
+                    }
+                    if (currentText.endsWith(incomingText)) {
+                        return currentText;
+                    }
+
+                    const maxOverlap = Math.min(currentText.length, incomingText.length);
+                    for (let i = maxOverlap; i > 0; i--) {
+                        if (currentText.endsWith(incomingText.slice(0, i))) {
+                            return currentText + incomingText.slice(i);
+                        }
+                    }
+
+                    return currentText + incomingText;
+                }
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+
+                    let newlineIndex;
+                    while ((newlineIndex = buffer.indexOf('\n')) >= 0) {
+                        const line = buffer.slice(0, newlineIndex).trim();
+                        buffer = buffer.slice(newlineIndex + 1);
+                        if (!line) continue;
+
+                        let event;
+                        try {
+                            event = JSON.parse(line);
+                        } catch (err) {
+                            continue;
+                        }
+
+                        if (event.type === 'status') {
+                            statusText.textContent = event.text || 'Fordítás folyamatban...';
+                        } else if (event.type === 'partial') {
+                            currentTranslatedText = mergeTranslatedText(currentTranslatedText, event.text || '');
+                            targetTextDiv.innerHTML = '<p class="text-gray-900 whitespace-pre-wrap">' + escapeHtml(currentTranslatedText) + '</p>';
+                        } else if (event.type === 'final') {
+                            currentTranslatedText = event.text || currentTranslatedText;
+                            targetTextDiv.innerHTML = '<p class="text-gray-900 whitespace-pre-wrap">' + escapeHtml(currentTranslatedText) + '</p>';
+                        } else if (event.type === 'error') {
+                            targetTextDiv.innerHTML = '<p class="text-red-600">Error: ' + escapeHtml(event.text || 'Translation failed') + '</p>';
+                        }
+                    }
+                }
+
+                statusText.textContent = 'Fordítás kész.';
             } catch (error) {
                 console.error('Translation error:', error);
+                statusText.textContent = 'Translation failed.';
                 targetTextDiv.innerHTML = '<p class="text-red-600">Error: Unable to translate. Please try again.</p>';
             } finally {
                 // Re-enable button and restore state

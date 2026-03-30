@@ -31,6 +31,8 @@ INPUT: <input>
 FINAL: <final answer>
 
 - Do NOT include anything else
+- Do NOT include multiple TOOL blocks
+- Do NOT include BOTH TOOL and FINAL in the same response
 - Do NOT explain your reasoning
 - Do NOT output JSON
 - Be concise
@@ -52,7 +54,8 @@ FINAL: The answer is 42`;
 //---------------------------------------------
 // Types for tool calls and final answers
 //---------------------------------------------
-type Message = {
+type Message = 
+{
   role: "system" | "user" | "assistant" | "tool";
   content: string;
 };
@@ -62,25 +65,130 @@ type ToolCall =
   | { type: "final"; output: string }
   | { type: "invalid"; raw: string };
 
+type AgentCallbacks = 
+{
+  onStatus?: (text: string) => void;
+  onPartial?: (text: string) => void;
+  onError?: (text: string) => void;
+};
+
 //---------------------------------------------
 // A parser to extract tool calls or final answers from the response
 //---------------------------------------------
-async function callOllama(messages: Message[]) {
-  const res = await fetch("http://localhost:11434/api/chat", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model: "qwen3.5:9b",
-      think: false,
-      messages,
-      stream: false
-    })
-  });
+type AgentResponse = 
+{
+  raw: string;
+  visible: string;
+};
 
-  const json = await res.json();
-  return json.message.content as string;
+const TOOL_CALL_REGEX = /^TOOL:\s*(\w+)\s*\r?\nINPUT:\s*([\s\S]*)$/i;
+
+function parseToolCall(text: string): { name: string; input: string } | null {
+  const match = text.match(TOOL_CALL_REGEX);
+  return match
+    ? { name: match[1].trim(), input: match[2].trim() }
+    : null;
+}
+
+function countToolBlocks(text: string): number {
+  return (text.match(/^\s*TOOL:/gim) || []).length;
+}
+
+function hasFinalToken(text: string): boolean {
+  return /FINAL:/i.test(text);
+}
+
+function isInvalidToolFinalMix(text: string): boolean {
+  return countToolBlocks(text) > 0 && hasFinalToken(text);
+}
+
+function extractFinalText(text: string): string {
+  const parts = text.split(/FINAL:\s*/i);
+  return parts.slice(1).join(" ").trimStart();
+}
+
+async function callOllama(messages: Message[], callbacks: AgentCallbacks = {}): Promise<AgentResponse> {
+  callbacks.onStatus?.("AI válasz készül...")
+
+  const response = await ollama.chat({
+    model: "qwen3.5:9b",
+    think: false,
+    stream: true,
+    messages
+  })
+
+  let raw = ""
+  let visible = ""
+  let lastChunk = ""
+  let toolStatusSent = false
+  let finalPhase = false
+
+  if (typeof (response as any)[Symbol.asyncIterator] === "function") 
+  {
+    for await (const part of response as AsyncIterable<any>) 
+    {
+      const chunk = part?.message?.content ?? part?.response ?? ""
+      if (!chunk) continue
+
+      if (chunk.startsWith(raw)) {
+        raw = chunk
+      } else {
+        raw += chunk
+      }
+
+      if (raw === lastChunk) continue
+      lastChunk = raw
+
+      const trimmed = raw.trimStart()
+      const toolCall = parseToolCall(trimmed)
+      const isToolOnly = toolCall !== null && !hasFinalToken(trimmed)
+      const hasFinal = hasFinalToken(trimmed)
+      const invalidMix = isInvalidToolFinalMix(trimmed)
+
+      if (isToolOnly)
+      {
+        if (!toolStatusSent)
+        {
+          const toolName = toolCall!.name
+          callbacks.onStatus?.( toolName === "web_search"
+                                ? "AI a weben keres..."
+                                : toolName === "mcp_search"
+                                ? "AI MCP tool-t hív..."
+                                : "AI tool-t hív...")
+          toolStatusSent = true
+        }
+        continue
+      }
+
+      if (invalidMix)
+      {
+        // Mixed TOOL and FINAL is invalid; do not surface partial output.
+        continue
+      }
+
+      if (hasFinal)
+      {
+        if (!finalPhase)
+        {
+          callbacks.onStatus?.("AI végső választ ír...")
+          finalPhase = true
+        }
+        visible = extractFinalText(trimmed)
+        callbacks.onPartial?.(visible)
+      }
+    }
+  } else 
+  {
+    raw = (response as any).message?.content || (response as any).response || ""
+    const invalidMix = isInvalidToolFinalMix(raw)
+    if (!invalidMix && hasFinalToken(raw)) {
+      visible = extractFinalText(raw.trimStart())
+      callbacks.onPartial?.(visible)
+    }
+  }
+
+  callbacks.onStatus?.("AI válasz kész")
+  return { raw, visible }
 }
 
 //---------------------------------------------
@@ -99,7 +207,8 @@ const tools = {
     return await res.text();
   },
 
-  async web_search(input: string): Promise<string> {
+  async web_search(input: string): Promise<string> 
+  {
     return await web_search(input);
   }
 };
@@ -110,23 +219,32 @@ const tools = {
 function parseLLMResponse(text: string): ToolCall {
   const trimmed = text.trim();
 
-  const toolMatch = trimmed.match(/TOOL:\s*(\w+)[\s\S]*INPUT:\s*([\s\S]*)/);
+  if (trimmed === "") {
+    console.log("-Failed to parse LLM response: empty response");
+    return { type: "invalid", raw: text };
+  }
 
-  if (toolMatch) {
+  if (countToolBlocks(trimmed) > 1 || isInvalidToolFinalMix(trimmed)) {
+    console.log("-Invalid format: multiple TOOL blocks or TOOL+FINAL mixed", trimmed);
+    return { type: "invalid", raw: text };
+  }
+
+  const toolCall = parseToolCall(trimmed);
+  if (toolCall) {
     console.log("-Parsed TOOL call for tool");
     return {
       type: "tool",
-      name: toolMatch[1].trim(),
-      input: toolMatch[2].trim()
+      name: toolCall.name,
+      input: toolCall.input
     };
   }
 
-  if (trimmed.startsWith("FINAL:")) {
+  if (trimmed.toUpperCase().startsWith("FINAL:")) {
     console.log("-Parsed FINAL answer.");
 
     return {
       type: "final",
-      output: trimmed.replace("FINAL:", "").trim()
+      output: extractFinalText(trimmed)
     };
   }
 
@@ -137,7 +255,7 @@ function parseLLMResponse(text: string): ToolCall {
 //---------------------------------------------
 // The main agent function that runs the loop
 //---------------------------------------------
-export async function runAgent(userInput: string) {
+export async function runAgent(userInput: string, callbacks: AgentCallbacks = {}) {
   const messages: Message[] = [
     { role: "system", content: SYSTEM_PROMPT },
     { role: "user", content: userInput }
@@ -146,15 +264,15 @@ export async function runAgent(userInput: string) {
   const MAX_STEPS = 6;
 
   for (let step = 0; step < MAX_STEPS; step++) {
-    const response = await callOllama(messages);
+    const response = await callOllama(messages, callbacks);
 
-    const parsed = parseLLMResponse(response);
+    const parsed = parseLLMResponse(response.raw);
 
-    // 🧨 INVALID → retry erősebb utasítással
+    // INVALID → retry erősebb utasítással
     if (parsed.type === "invalid") {
       messages.push({
         role: "assistant",
-        content: response
+        content: response.raw
       });
 
       messages.push({
@@ -181,17 +299,25 @@ export async function runAgent(userInput: string) {
       continue;
     }
 
+    callbacks.onStatus?.(
+      parsed.name === "web_search"
+        ? "AI weben keres..."
+        : "AI MCP tool-t hív..."
+    );
+
     let toolResult: string;
 
     try {
       toolResult = await toolFn(parsed.input);
+      callbacks.onStatus?.("Eszközválasz megérkezett.");
     } catch (e) {
       toolResult = `Tool error: ${e}`;
+      callbacks.onError?.(toolResult);
     }
 
     messages.push({
       role: "assistant",
-      content: response
+      content: response.raw
     });
 
     messages.push({
@@ -243,6 +369,6 @@ console.log("4")
 
   return {
     answer,
-    contracts: [...new Set(bestChunks.map(c => c.contractId))]
+    contracts: Array.from(new Set(bestChunks.map(c => c.contractId)))
   }
 }

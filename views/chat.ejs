@@ -55,7 +55,9 @@
                     </div>
                 <% }); %>
             </div>
-
+            <div class="px-4 sm:px-6 pb-4">
+                <p id="chat-status" class="text-sm text-gray-600">AI várakozik...</p>
+            </div>
             <div class="p-4 sm:p-6 border-t border-gray-200">
                 <form id="chat-form" class="flex space-x-2 sm:space-x-4">
                     <input type="text" id="message" name="message" required
@@ -74,8 +76,17 @@
         const messageInput = document.getElementById('message');
         const sendButton = document.getElementById('send-button');
         const chatContainer = document.getElementById('chat-container');
+        const chatStatus = document.getElementById('chat-status');
 
-        // Function to add user message to chat
+        let currentAIMessageElement = null;
+        let currentPartialText = '';
+
+        function updateStatus(text) {
+            if (chatStatus) {
+                chatStatus.textContent = text;
+            }
+        }
+
         function addUserMessage(message) {
             const messageDiv = document.createElement('div');
             messageDiv.className = 'flex items-center space-x-3';
@@ -93,8 +104,7 @@
             chatContainer.scrollTop = chatContainer.scrollHeight;
         }
 
-        // Function to add AI message to chat
-        function addAIMessage(message) {
+        function createAIMessage(message) {
             const messageDiv = document.createElement('div');
             messageDiv.className = 'flex items-center space-x-3';
             messageDiv.innerHTML = `
@@ -109,83 +119,105 @@
             `;
             chatContainer.appendChild(messageDiv);
             chatContainer.scrollTop = chatContainer.scrollHeight;
+            return messageDiv;
         }
 
-        // Function to add loading indicator
-        function addLoadingIndicator() {
-            const loadingDiv = document.createElement('div');
-            loadingDiv.id = 'loading-indicator';
-            loadingDiv.className = 'flex items-center space-x-3';
-            loadingDiv.innerHTML = `
-                <div class="flex-shrink-0">
-                    <div class="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
-                        <span class="text-sm font-medium text-green-600">AI</span>
-                    </div>
-                </div>
-                <div class="flex-1 bg-green-50 rounded-lg p-4">
-                    <div class="flex items-center space-x-2">
-                        <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-green-600"></div>
-                        <p class="text-gray-600">AI is thinking...</p>
-                    </div>
-                </div>
-            `;
-            chatContainer.appendChild(loadingDiv);
+        function updateAIMessage(message) {
+            if (!currentAIMessageElement) {
+                currentAIMessageElement = createAIMessage('');
+            }
+
+            const textNode = currentAIMessageElement.querySelector('p');
+            if (!textNode) return;
+
+            if (message.length >= currentPartialText.length && message.startsWith(currentPartialText)) {
+                currentPartialText = message;
+            } else if (currentPartialText && message.endsWith(currentPartialText)) {
+                currentPartialText = message;
+            } else {
+                currentPartialText += message;
+            }
+
+            textNode.textContent = currentPartialText;
             chatContainer.scrollTop = chatContainer.scrollHeight;
         }
 
-        // Function to remove loading indicator
-        function removeLoadingIndicator() {
-            const loadingDiv = document.getElementById('loading-indicator');
-            if (loadingDiv) {
-                loadingDiv.remove();
+        async function streamChat(url, message) {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Accept': 'application/x-ndjson',
+                },
+                body: new URLSearchParams({ message })
+            });
+
+            if (!response.ok || !response.body) {
+                const errorText = await response.text();
+                throw new Error(errorText || 'Stream request failed')
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+
+                let newlineIndex;
+                while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
+                    const line = buffer.slice(0, newlineIndex).trim();
+                    buffer = buffer.slice(newlineIndex + 1);
+                    if (!line) continue;
+
+                    let event;
+                    try {
+                        event = JSON.parse(line);
+                    } catch (err) {
+                        continue;
+                    }
+
+                    if (event.type === 'status') {
+                        updateStatus(event.text || 'AI dolgozik...');
+                    } else if (event.type === 'partial') {
+                        updateAIMessage(event.text || '');
+                    } else if (event.type === 'final') {
+                        updateAIMessage(event.text || '');
+                    } else if (event.type === 'error') {
+                        updateAIMessage(event.text || 'Hiba történt a válasz során.');
+                        updateStatus('Hiba történt');
+                    }
+                }
             }
         }
 
-        // Handle form submission
         chatForm.addEventListener('submit', async (e) => {
             e.preventDefault();
 
             const message = messageInput.value.trim();
             if (!message) return;
 
-            // Immediately show user message and clear input
             addUserMessage(message);
             messageInput.value = '';
-
-            // Disable send button and show loading
+            currentAIMessageElement = null;
+            currentPartialText = '';
+            updateStatus('AI válasz készül...');
             sendButton.disabled = true;
             sendButton.textContent = 'Sending...';
-            addLoadingIndicator();
 
             try {
-                // Send message to backend
-                const response = await fetch('/chat', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                        'Accept': 'application/json',
-                    },
-                    body: new URLSearchParams({ message: message })
-                });
-
-                if (response.ok) {
-                    const data = await response.json();
-                    removeLoadingIndicator();
-                    addAIMessage(data.aiMessage);
-                } else {
-                    const errorData = await response.json().catch(() => ({ aiMessage: 'Sorry, there was an error processing your message.' }));
-                    removeLoadingIndicator();
-                    addAIMessage(errorData.aiMessage);
-                }
+                await streamChat('/chat-stream', message);
+                updateStatus('Válasz elkészült');
             } catch (error) {
                 console.error('Error:', error);
-                removeLoadingIndicator();
-                addAIMessage('Sorry, there was an error processing your message.');
+                updateAIMessage('Sorry, there was an error processing your message.');
+                updateStatus('Hiba történt');
+            } finally {
+                sendButton.disabled = false;
+                sendButton.textContent = 'Send';
             }
-
-            // Re-enable send button
-            sendButton.disabled = false;
-            sendButton.textContent = 'Send';
         });
     </script>
 </body>
