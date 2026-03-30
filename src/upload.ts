@@ -1,16 +1,17 @@
 import { QdrantClient } from "@qdrant/js-client-rest"
 import ollama from "ollama"
 import pLimit from "p-limit"
+import { embedModel, qdrantUrl, qdrantCollection } from "./utils/config.js"
 
-const client = new QdrantClient({ url: "http://localhost:6333" })
+const client = new QdrantClient({ url: qdrantUrl })
 const limit = pLimit(4)
-const collName = "contracts"
+const collName = qdrantCollection
 
 async function embedTexts(texts: string[]) {
   const tasks = texts.map(text =>
     limit(() =>
       ollama.embeddings({
-        model: "nomic-embed-text",
+        model: embedModel,
         prompt: text
       })
     )

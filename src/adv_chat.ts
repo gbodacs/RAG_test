@@ -1,6 +1,7 @@
 import ollama from "ollama"
-import { embedQuery, searchVectors, extractCandidates, rerank, buildContext, askLLM } from './vectorsearch.js';
-import { web_search } from './websearch.js';
+import { vectorLLM, mcpServiceUrl } from "./utils/config.js"
+import { embedQuery, searchVectors, extractCandidates, rerank, buildContext, askLLM } from './vectorsearch.ts';
+import { web_search } from './websearch.ts';
 
 export const SYSTEM_PROMPT = `
 You are an AI agent with access to tools.
@@ -111,7 +112,7 @@ async function callOllama(messages: Message[], callbacks: AgentCallbacks = {}): 
   callbacks.onStatus?.("AI válasz készül...")
 
   const response = await ollama.chat({
-    model: "qwen3.5:9b",
+    model: vectorLLM,
     think: false,
     stream: true,
     messages
@@ -196,7 +197,7 @@ async function callOllama(messages: Message[], callbacks: AgentCallbacks = {}): 
 //--------------------------------------------- 
 const tools = {
   async mcp_search(input: string): Promise<string> {
-    const res = await fetch("http://localhost:3001/mcp", {
+    const res = await fetch(mcpServiceUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
@@ -331,7 +332,7 @@ export async function runAgent(userInput: string, callbacks: AgentCallbacks = {}
 
 /*async function askLLM(question: string, context: string) {
   const res = await ollama.chat({
-    model: "qwen3.5:9b",
+    model: vectorLLM,
     think:false,
     messages: [
       {

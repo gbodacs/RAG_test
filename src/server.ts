@@ -4,10 +4,11 @@ import bodyParser from 'body-parser';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { upload_db } from './upload.js';
-import { askLLM } from './chat.ts';
+import { askLLM } from './simple_chat.ts';
 import { query as vectorQuery } from './vectorsearch.js';
 import { translateText } from './translate.js';
-import { runAgent } from './mcpsearch.js';
+import { runAgent } from './adv_chat.ts';
+import { serverPort, sessionSecret, cookieSecure } from './utils/config.js';
 
 declare module 'express-session' {
   interface SessionData {
@@ -19,16 +20,16 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = 3000;
+const PORT = serverPort;
 
 // Middleware
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 app.use(session({
-  secret: 'your-secret-key', // Change this in production
+  secret: sessionSecret,
   resave: false,
   saveUninitialized: true,
-  cookie: { secure: false } // Set to true if using HTTPS
+  cookie: { secure: cookieSecure }
 }));
 
 // Set view engine

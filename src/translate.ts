@@ -1,4 +1,5 @@
 import ollama from "ollama"
+import { translateLLM } from "./utils/config.js"
 
 type TranslateCallbacks = {
   onStatus?: (text: string) => void;
@@ -18,7 +19,7 @@ ${text}`
   ]
 
   const response = await ollama.chat({
-    model: "translategemma:27b",
+    model: translateLLM,
     think: false,
     stream: true,
     messages

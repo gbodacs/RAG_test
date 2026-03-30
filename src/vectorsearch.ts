@@ -1,4 +1,5 @@
 import ollama from "ollama"
+import { embedModel, vectorLLM, qdrantUrl, qdrantCollection } from "./utils/config.js"
 import { QdrantClient } from "@qdrant/js-client-rest"
 
 type QueryCallbacks = {
@@ -9,17 +10,17 @@ type QueryCallbacks = {
 
 export async function embedQuery(query: string) {
   const res = await ollama.embeddings({
-    model: "nomic-embed-text",
+    model: embedModel,
     prompt: query
   })
 
   return res.embedding
 }
 
-const client = new QdrantClient({ url: "http://localhost:6333" })
+const client = new QdrantClient({ url: qdrantUrl })
 
 export async function searchVectors(queryEmbedding: number[]) {
-  const results = await client.search("contracts", {
+  const results = await client.search(qdrantCollection, {
     vector: queryEmbedding,
     limit: 20
   })
@@ -42,7 +43,7 @@ export async function rerank(query: string, docs: any[]) {
     docs.map(async d => {
 
       const res = await ollama.generate({
-        model: "qwen3.5:9b",
+        model: vectorLLM,
         think: false,
         prompt: `
 Rate relevance from 0 to 10.
@@ -91,7 +92,7 @@ ${question}
   ]
 
   const response = await ollama.chat({
-    model: "qwen3.5:9b",
+    model: vectorLLM,
     think: false,
     stream: true,
     messages

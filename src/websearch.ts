@@ -1,6 +1,6 @@
 import { JSDOM } from "jsdom";
 import { Readability } from "@mozilla/readability";
-import { searchAPI } from "./searchapi.js";
+import { searchAPI } from "./utils/searchapi.js";
 
 async function fetchAndExtract(url: string): Promise<string> 
 {
