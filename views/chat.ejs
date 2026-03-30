@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chat - TudatAI Demo Application</title>
+    <title><%= pageTitle || 'Chat' %> - TudatAI Demo Application</title>
     <link rel="stylesheet" href="/styles.css">
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
@@ -16,6 +16,7 @@
                     <a href="/" class="<%= currentPage === 'home' ? 'text-blue-800 font-semibold bg-blue-50 px-2 py-1 rounded' : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50 px-2 py-1 rounded transition duration-200' %> font-medium text-sm sm:text-base">Home</a>
                     <a href="/upload" class="<%= currentPage === 'upload' ? 'text-blue-800 font-semibold bg-blue-50 px-2 py-1 rounded' : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50 px-2 py-1 rounded transition duration-200' %> font-medium text-sm sm:text-base">Upload</a>
                     <a href="/chat" class="<%= currentPage === 'chat' ? 'text-blue-800 font-semibold bg-blue-50 px-2 py-1 rounded' : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50 px-2 py-1 rounded transition duration-200' %> font-medium text-sm sm:text-base">Chat</a>
+                    <a href="/vectorsearch" class="<%= currentPage === 'vectorsearch' ? 'text-blue-800 font-semibold bg-blue-50 px-2 py-1 rounded' : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50 px-2 py-1 rounded transition duration-200' %> font-medium text-sm sm:text-base">Vector Search</a>
                     <a href="/advanced-chat" class="<%= currentPage === 'advanced-chat' ? 'text-blue-800 font-semibold bg-blue-50 px-2 py-1 rounded' : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50 px-2 py-1 rounded transition duration-200' %> font-medium text-sm sm:text-base">Advanced</a>
                     <a href="/translate" class="<%= currentPage === 'translate' ? 'text-blue-800 font-semibold bg-blue-50 px-2 py-1 rounded' : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50 px-2 py-1 rounded transition duration-200' %> font-medium text-sm sm:text-base">Translate</a>
                     <a href="/logout" class="text-gray-600 hover:text-gray-800 hover:bg-gray-50 px-2 py-1 rounded transition duration-200 font-medium text-sm sm:text-base">Logout</a>
@@ -27,8 +28,8 @@
     <main class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div class="bg-white rounded-lg shadow-md h-[600px] flex flex-col">
             <div class="p-6 border-b border-gray-200">
-                <h2 class="text-2xl font-bold text-gray-900">AI Chat</h2>
-                <p class="text-gray-600">Chat with our AI assistant</p>
+                <h2 class="text-2xl font-bold text-gray-900"><%= pageTitle || 'AI Chat' %></h2>
+                <p class="text-gray-600"><%= pageDescription || 'Chat with our AI assistant' %></p>
             </div>
 
             <div id="chat-container" class="flex-1 p-6 overflow-y-auto space-y-4">
@@ -208,7 +209,7 @@
             sendButton.textContent = 'Sending...';
 
             try {
-                await streamChat('/chat-stream', message);
+                await streamChat('<%= streamUrl || "/chat-stream" %>', message);
                 updateStatus('Válasz elkészült');
             } catch (error) {
                 console.error('Error:', error);

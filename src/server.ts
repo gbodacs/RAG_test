@@ -4,7 +4,8 @@ import bodyParser from 'body-parser';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { upload_db } from './upload.js';
-import { query } from './vectorsearch.js';
+import { askLLM } from './chat.ts';
+import { query as vectorQuery } from './vectorsearch.js';
 import { translateText } from './translate.js';
 import { runAgent } from './mcpsearch.js';
 
@@ -108,24 +109,33 @@ app.post('/upload', requireAuth, async (req, res) => {
 });
 
 app.get('/chat', requireAuth, (req, res) => {
-  res.render('chat', { messages: [], currentPage: 'chat' });
+  res.render('chat', {
+    messages: [],
+    currentPage: 'chat',
+    pageTitle: 'Simple Chat',
+    pageDescription: 'Chat with our AI assistant in a simple conversational interface.',
+    streamUrl: '/chat-stream'
+  });
 });
 
 app.post('/chat', requireAuth, async (req, res) => {
   const { message } = req.body;
   try {
-    const response = await query(message);
+    const answer = await askLLM(message, '');
 
-    // Check if this is an AJAX request
     const isAjax = req.headers.accept && req.headers.accept.includes('application/json');
 
     if (isAjax) {
-      // Return JSON for AJAX requests
-      res.json({ success: true, aiMessage: response.answer });
+      res.json({ success: true, aiMessage: answer });
     } else {
-      // Return HTML for regular form submissions
-      const messages = [{ user: message, ai: response.answer }];
-      res.render('chat', { messages, currentPage: 'chat' });
+      const messages = [{ user: message, ai: answer }];
+      res.render('chat', {
+        messages,
+        currentPage: 'chat',
+        pageTitle: 'Simple Chat',
+        pageDescription: 'Chat with our AI assistant in a simple conversational interface.',
+        streamUrl: '/chat-stream'
+      });
     }
   } catch (error) {
     console.error('Chat error:', error);
@@ -133,7 +143,13 @@ app.post('/chat', requireAuth, async (req, res) => {
     if (req.headers.accept && req.headers.accept.includes('application/json')) {
       res.status(500).json({ success: false, aiMessage: 'Error processing query.' });
     } else {
-      res.render('chat', { messages: [{ user: message, ai: 'Error processing query.' }], currentPage: 'chat' });
+      res.render('chat', {
+        messages: [{ user: message, ai: 'Error processing query.' }],
+        currentPage: 'chat',
+        pageTitle: 'Simple Chat',
+        pageDescription: 'Chat with our AI assistant in a simple conversational interface.',
+        streamUrl: '/chat-stream'
+      });
     }
   }
 });
@@ -143,7 +159,73 @@ app.post('/chat-stream', requireAuth, async (req, res) => {
   setupStreamHeaders(res);
 
   try {
-    const response = await query(message, {
+    const answer = await askLLM(message, '', {
+      onStatus: (text: string) => sendStreamEvent(res, { type: 'status', text }),
+      onPartial: (text: string) => sendStreamEvent(res, { type: 'partial', text })
+    });
+
+    sendStreamEvent(res, { type: 'final', text: answer });
+    sendStreamEvent(res, { type: 'done' });
+  } catch (error) {
+    console.error('Chat stream error:', error);
+    sendStreamEvent(res, { type: 'error', text: 'Error processing query.' });
+  } finally {
+    res.end();
+  }
+});
+
+app.get('/vectorsearch', requireAuth, (req, res) => {
+  res.render('chat', {
+    messages: [],
+    currentPage: 'vectorsearch',
+    pageTitle: 'Vector Search',
+    pageDescription: 'Search your document database with vector retrieval.',
+    streamUrl: '/vectorsearch-stream'
+  });
+});
+
+app.post('/vectorsearch', requireAuth, async (req, res) => {
+  const { message } = req.body;
+  try {
+    const response = await vectorQuery(message);
+
+    const isAjax = req.headers.accept && req.headers.accept.includes('application/json');
+
+    if (isAjax) {
+      res.json({ success: true, aiMessage: response.answer });
+    } else {
+      const messages = [{ user: message, ai: response.answer }];
+      res.render('chat', {
+        messages,
+        currentPage: 'vectorsearch',
+        pageTitle: 'Vector Search',
+        pageDescription: 'Search your document database with vector retrieval.',
+        streamUrl: '/vectorsearch-stream'
+      });
+    }
+  } catch (error) {
+    console.error('Vector search error:', error);
+
+    if (req.headers.accept && req.headers.accept.includes('application/json')) {
+      res.status(500).json({ success: false, aiMessage: 'Error processing query.' });
+    } else {
+      res.render('chat', {
+        messages: [{ user: message, ai: 'Error processing query.' }],
+        currentPage: 'vectorsearch',
+        pageTitle: 'Vector Search',
+        pageDescription: 'Search your document database with vector retrieval.',
+        streamUrl: '/vectorsearch-stream'
+      });
+    }
+  }
+});
+
+app.post('/vectorsearch-stream', requireAuth, async (req, res) => {
+  const { message } = req.body;
+  setupStreamHeaders(res);
+
+  try {
+    const response = await vectorQuery(message, {
       onStatus: (text) => sendStreamEvent(res, { type: 'status', text }),
       onPartial: (text) => sendStreamEvent(res, { type: 'partial', text })
     });
@@ -151,7 +233,7 @@ app.post('/chat-stream', requireAuth, async (req, res) => {
     sendStreamEvent(res, { type: 'final', text: response.answer });
     sendStreamEvent(res, { type: 'done' });
   } catch (error) {
-    console.error('Chat stream error:', error);
+    console.error('Vector search stream error:', error);
     sendStreamEvent(res, { type: 'error', text: 'Error processing query.' });
   } finally {
     res.end();
