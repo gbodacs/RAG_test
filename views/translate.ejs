@@ -80,6 +80,9 @@
                         </svg>
                         <span id="submitText">Translate</span>
                     </button>
+                    <button type="button" id="stop-button" disabled class="px-6 py-3 bg-red-500 text-white font-medium rounded-lg hover:bg-red-600 transition duration-200 text-sm whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed">
+                        Stop
+                    </button>
                     <button type="reset" class="px-6 py-3 bg-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-400 transition duration-200">
                         Clear
                     </button>
@@ -89,7 +92,37 @@
     </main>
 
     <script>
-        document.getElementById('translateForm').addEventListener('submit', async function(e) {
+        const translateForm = document.getElementById('translateForm');
+        const submitBtn = document.getElementById('submitBtn');
+        const submitText = document.getElementById('submitText');
+        const submitIcon = document.getElementById('submitIcon');
+        const stopButton = document.getElementById('stop-button');
+        const targetTextDiv = document.getElementById('targetText');
+        const statusText = document.getElementById('translateStatus');
+
+        let currentAbortController = null;
+        let currentReader = null;
+        let isStreaming = false;
+
+        function setStreaming(active) {
+            isStreaming = active;
+            submitBtn.disabled = active;
+            stopButton.disabled = !active;
+        }
+
+        stopButton.addEventListener('click', () => {
+            if (!isStreaming || !currentAbortController) return;
+
+            currentAbortController.abort();
+            if (currentReader) {
+                currentReader.cancel().catch(() => {});
+            }
+
+            statusText.textContent = 'Fordítás megszakítva.';
+            setStreaming(false);
+        });
+
+        translateForm.addEventListener('submit', async function(e) {
             e.preventDefault();
 
             const sourceText = document.getElementById('sourceText').value;
@@ -106,21 +139,19 @@
                 return;
             }
 
-            const submitBtn = document.getElementById('submitBtn');
-            const submitText = document.getElementById('submitText');
-            const submitIcon = document.getElementById('submitIcon');
-            const targetTextDiv = document.getElementById('targetText');
-
             // Disable button and show loading state
             submitBtn.disabled = true;
-            const statusText = document.getElementById('translateStatus');
             submitText.textContent = 'Translating...';
             submitIcon.style.display = 'none';
             targetTextDiv.innerHTML = '<p class="text-gray-400 italic">Translating...</p>';
             statusText.textContent = 'Kapcsolódás az AI-hoz...';
+            setStreaming(true);
 
             try {
                 let currentTranslatedText = '';
+
+                currentAbortController = new AbortController();
+                currentReader = null;
 
                 const response = await fetch('/translate-stream', {
                     method: 'POST',
@@ -132,7 +163,8 @@
                         sourceText: sourceText,
                         sourceLanguage: sourceLanguage,
                         targetLanguage: targetLanguage
-                    })
+                    }),
+                    signal: currentAbortController.signal
                 });
 
                 if (!response.ok || !response.body) {
@@ -141,6 +173,7 @@
                 }
 
                 const reader = response.body.getReader();
+                currentReader = reader;
                 const decoder = new TextDecoder();
                 let buffer = '';
 
@@ -198,13 +231,21 @@
                 statusText.textContent = 'Fordítás kész.';
             } catch (error) {
                 console.error('Translation error:', error);
-                statusText.textContent = 'Translation failed.';
-                targetTextDiv.innerHTML = '<p class="text-red-600">Error: Unable to translate. Please try again.</p>';
+                if (error.name === 'AbortError' || /abort/i.test(error.message || '')) {
+                    statusText.textContent = 'Fordítás megszakítva.';
+                } else {
+                    statusText.textContent = 'Translation failed.';
+                    targetTextDiv.innerHTML = '<p class="text-red-600">Error: Unable to translate. Please try again.</p>';
+                }
             } finally {
                 // Re-enable button and restore state
                 submitBtn.disabled = false;
+                stopButton.disabled = true;
                 submitText.textContent = 'Translate';
                 submitIcon.style.display = 'inline';
+                setStreaming(false);
+                currentReader = null;
+                currentAbortController = null;
             }
         });
 
