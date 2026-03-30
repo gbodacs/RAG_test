@@ -123,10 +123,10 @@ export async function query(question: string, callbacks: QueryCallbacks = {}) {
   const embedding = await embedQuery(question)
   const vectorResults = await searchVectors(embedding)
   const candidates = extractCandidates(vectorResults)
-  callbacks.onStatus?.("Legrelevánsabb dokumentumokat választom ki...")
+  callbacks.onStatus?.("Releváns dokumentumok kiválasztása...")
   const bestChunks = await rerank(question, candidates)
   const context = buildContext(bestChunks)
-  callbacks.onStatus?.("Választ készítek a talált tartalom alapján...")
+  callbacks.onStatus?.("Válasz készítése a találatok alapján...")
   const answer = await askLLM(question, context, callbacks)
 
   return {
