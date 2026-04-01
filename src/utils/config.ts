@@ -1,5 +1,5 @@
-export const chatLLM = "qwen3.5:9b"
-export const vectorLLM = "qwen3.5:9b"
+export const chatLLM = "qwen3.5:0.8b"
+export const vectorLLM = "qwen3.5:0.8b"
 export const translateLLM = "translategemma:27b"
 export const embedModel = "nomic-embed-text"
 export const qdrantUrl = "http://localhost:6333"

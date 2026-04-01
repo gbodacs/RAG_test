@@ -91,7 +91,9 @@
         </div>
     </main>
 
-    <script>
+        <script type="module">
+        import { createStreamState, setStreaming, stopStream, fetchStream } from '/js/stream-utils.js';
+
         const translateForm = document.getElementById('translateForm');
         const submitBtn = document.getElementById('submitBtn');
         const submitText = document.getElementById('submitText');
@@ -99,28 +101,37 @@
         const stopButton = document.getElementById('stop-button');
         const targetTextDiv = document.getElementById('targetText');
         const statusText = document.getElementById('translateStatus');
+        const state = createStreamState();
 
-        let currentAbortController = null;
-        let currentReader = null;
-        let isStreaming = false;
-
-        function setStreaming(active) {
-            isStreaming = active;
-            submitBtn.disabled = active;
-            stopButton.disabled = !active;
+        function setTranslateStreaming(active) {
+            setStreaming(state, submitBtn, stopButton, active);
         }
 
         stopButton.addEventListener('click', () => {
-            if (!isStreaming || !currentAbortController) return;
+            if (!state.isStreaming) return;
+            stopStream(state);
+            statusText.textContent = 'Fordítás megszakítva.';
+            setTranslateStreaming(false);
+        });
 
-            currentAbortController.abort();
-            if (currentReader) {
-                currentReader.cancel().catch(() => {});
+        function mergeTranslatedText(currentText, incomingText) {
+            if (!incomingText) return currentText;
+            if (incomingText.startsWith(currentText)) {
+                return incomingText;
+            }
+            if (currentText.endsWith(incomingText)) {
+                return currentText;
             }
 
-            statusText.textContent = 'Fordítás megszakítva.';
-            setStreaming(false);
-        });
+            const maxOverlap = Math.min(currentText.length, incomingText.length);
+            for (let i = maxOverlap; i > 0; i--) {
+                if (currentText.endsWith(incomingText.slice(0, i))) {
+                    return currentText + incomingText.slice(i);
+                }
+            }
+
+            return currentText + incomingText;
+        }
 
         translateForm.addEventListener('submit', async function(e) {
             e.preventDefault();
@@ -139,94 +150,43 @@
                 return;
             }
 
-            // Disable button and show loading state
             submitBtn.disabled = true;
             submitText.textContent = 'Translating...';
             submitIcon.style.display = 'none';
             targetTextDiv.innerHTML = '<p class="text-gray-400 italic">Translating...</p>';
             statusText.textContent = 'Kapcsolódás az AI-hoz...';
-            setStreaming(true);
+            setTranslateStreaming(true);
+
+            let currentTranslatedText = '';
 
             try {
-                let currentTranslatedText = '';
-
-                currentAbortController = new AbortController();
-                currentReader = null;
-
-                const response = await fetch('/translate-stream', {
+                await fetchStream('/translate-stream', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         'Accept': 'application/x-ndjson'
                     },
                     body: JSON.stringify({
-                        sourceText: sourceText,
-                        sourceLanguage: sourceLanguage,
-                        targetLanguage: targetLanguage
-                    }),
-                    signal: currentAbortController.signal
+                        sourceText,
+                        sourceLanguage,
+                        targetLanguage
+                    })
+                }, state, {
+                    onStatus: text => {
+                        statusText.textContent = text || 'Fordítás folyamatban...';
+                    },
+                    onPartial: text => {
+                        currentTranslatedText = mergeTranslatedText(currentTranslatedText, text || '');
+                        targetTextDiv.innerHTML = '<p class="text-gray-900 whitespace-pre-wrap">' + escapeHtml(currentTranslatedText) + '</p>';
+                    },
+                    onFinal: text => {
+                        currentTranslatedText = text || currentTranslatedText;
+                        targetTextDiv.innerHTML = '<p class="text-gray-900 whitespace-pre-wrap">' + escapeHtml(currentTranslatedText) + '</p>';
+                    },
+                    onError: text => {
+                        targetTextDiv.innerHTML = '<p class="text-red-600">Error: ' + escapeHtml(text || 'Translation failed') + '</p>';
+                    }
                 });
-
-                if (!response.ok || !response.body) {
-                    const errorText = await response.text();
-                    throw new Error(errorText || 'Stream request failed');
-                }
-
-                const reader = response.body.getReader();
-                currentReader = reader;
-                const decoder = new TextDecoder();
-                let buffer = '';
-
-                function mergeTranslatedText(currentText, incomingText) {
-                    if (!incomingText) return currentText;
-                    if (incomingText.startsWith(currentText)) {
-                        return incomingText;
-                    }
-                    if (currentText.endsWith(incomingText)) {
-                        return currentText;
-                    }
-
-                    const maxOverlap = Math.min(currentText.length, incomingText.length);
-                    for (let i = maxOverlap; i > 0; i--) {
-                        if (currentText.endsWith(incomingText.slice(0, i))) {
-                            return currentText + incomingText.slice(i);
-                        }
-                    }
-
-                    return currentText + incomingText;
-                }
-
-                while (true) {
-                    const { value, done } = await reader.read();
-                    if (done) break;
-                    buffer += decoder.decode(value, { stream: true });
-
-                    let newlineIndex;
-                    while ((newlineIndex = buffer.indexOf('\n')) >= 0) {
-                        const line = buffer.slice(0, newlineIndex).trim();
-                        buffer = buffer.slice(newlineIndex + 1);
-                        if (!line) continue;
-
-                        let event;
-                        try {
-                            event = JSON.parse(line);
-                        } catch (err) {
-                            continue;
-                        }
-
-                        if (event.type === 'status') {
-                            statusText.textContent = event.text || 'Fordítás folyamatban...';
-                        } else if (event.type === 'partial') {
-                            currentTranslatedText = mergeTranslatedText(currentTranslatedText, event.text || '');
-                            targetTextDiv.innerHTML = '<p class="text-gray-900 whitespace-pre-wrap">' + escapeHtml(currentTranslatedText) + '</p>';
-                        } else if (event.type === 'final') {
-                            currentTranslatedText = event.text || currentTranslatedText;
-                            targetTextDiv.innerHTML = '<p class="text-gray-900 whitespace-pre-wrap">' + escapeHtml(currentTranslatedText) + '</p>';
-                        } else if (event.type === 'error') {
-                            targetTextDiv.innerHTML = '<p class="text-red-600">Error: ' + escapeHtml(event.text || 'Translation failed') + '</p>';
-                        }
-                    }
-                }
 
                 statusText.textContent = 'Fordítás kész.';
             } catch (error) {
@@ -238,14 +198,11 @@
                     targetTextDiv.innerHTML = '<p class="text-red-600">Error: Unable to translate. Please try again.</p>';
                 }
             } finally {
-                // Re-enable button and restore state
                 submitBtn.disabled = false;
                 stopButton.disabled = true;
                 submitText.textContent = 'Translate';
                 submitIcon.style.display = 'inline';
-                setStreaming(false);
-                currentReader = null;
-                currentAbortController = null;
+                setTranslateStreaming(false);
             }
         });
 

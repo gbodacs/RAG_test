@@ -67,30 +67,24 @@
         </div>
     </main>
 
-    <script>
+    <script type="module">
+        import { createStreamState, setStreaming, stopStream, fetchStream } from '/js/stream-utils.js';
+
         const chatForm = document.getElementById('chat-form');
         const messageInput = document.getElementById('message');
         const sendButton = document.getElementById('send-button');
         const stopButton = document.getElementById('stop-button');
         const chatContainer = document.getElementById('chat-container');
         const chatStatus = document.getElementById('chat-status');
+        const state = createStreamState();
 
         let currentAIMessageElement = null;
         let currentPartialText = '';
-        let currentAbortController = null;
-        let currentReader = null;
-        let isStreaming = false;
 
         function updateStatus(text) {
             if (chatStatus) {
                 chatStatus.textContent = text;
             }
-        }
-
-        function setStreaming(active) {
-            isStreaming = active;
-            sendButton.disabled = active;
-            stopButton.disabled = !active;
         }
 
         function addUserMessage(message) {
@@ -149,74 +143,29 @@
         }
 
         async function streamChat(url, message) {
-            currentAbortController = new AbortController();
-            currentReader = null;
-
-            try {
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                        'Accept': 'application/x-ndjson',
-                    },
-                    body: new URLSearchParams({ message }),
-                    signal: currentAbortController.signal
-                });
-
-                if (!response.ok || !response.body) {
-                    const errorText = await response.text();
-                    throw new Error(errorText || 'Stream request failed');
+            await fetchStream(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Accept': 'application/x-ndjson'
+                },
+                body: new URLSearchParams({ message })
+            }, state, {
+                onStatus: text => updateStatus(text || 'AI dolgozik...'),
+                onPartial: text => updateAIMessage(text || ''),
+                onFinal: text => updateAIMessage(text || ''),
+                onError: text => {
+                    updateAIMessage(text || 'Hiba történt a válasz során.');
+                    updateStatus('Hiba történt');
                 }
-
-                const reader = response.body.getReader();
-                currentReader = reader;
-                const decoder = new TextDecoder();
-                let buffer = '';
-
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-                    buffer += decoder.decode(value, { stream: true });
-
-                    let newlineIndex;
-                    while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
-                        const line = buffer.slice(0, newlineIndex).trim();
-                        buffer = buffer.slice(newlineIndex + 1);
-                        if (!line) continue;
-
-                        let event;
-                        try {
-                            event = JSON.parse(line);
-                        } catch (err) {
-                            continue;
-                        }
-
-                        if (event.type === 'status') {
-                            updateStatus(event.text || 'AI dolgozik...');
-                        } else if (event.type === 'partial') {
-                            updateAIMessage(event.text || '');
-                        } else if (event.type === 'final') {
-                            updateAIMessage(event.text || '');
-                        } else if (event.type === 'error') {
-                            updateAIMessage(event.text || 'Hiba történt a válasz során.');
-                            updateStatus('Hiba történt');
-                        }
-                    }
-                }
-            } finally {
-                currentReader = null;
-                currentAbortController = null;
-            }
+            });
         }
 
         stopButton.addEventListener('click', () => {
-            if (!isStreaming || !currentAbortController) return;
-            currentAbortController.abort();
-            if (currentReader) {
-                currentReader.cancel().catch(() => {});
-            }
+            if (!state.isStreaming) return;
+            stopStream(state);
             updateStatus('Válasz megszakítva');
-            setStreaming(false);
+            setStreaming(state, sendButton, stopButton, false);
         });
 
         chatForm.addEventListener('submit', async (e) => {
@@ -231,7 +180,7 @@
             currentPartialText = '';
             updateStatus('AI válasz készül...');
             sendButton.textContent = 'Sending...';
-            setStreaming(true);
+            setStreaming(state, sendButton, stopButton, true);
 
             try {
                 await streamChat('<%= streamUrl || "/chat-stream" %>', message);
@@ -245,7 +194,7 @@
                     updateStatus('Hiba történt');
                 }
             } finally {
-                setStreaming(false);
+                setStreaming(state, sendButton, stopButton, false);
                 sendButton.textContent = 'Send';
             }
         });
