@@ -330,29 +330,6 @@ export async function runAgent(userInput: string, callbacks: AgentCallbacks = {}
   return "Agent stopped: max steps reached";
 }
 
-/*async function askLLM(question: string, context: string) {
-  const res = await ollama.chat({
-    model: vectorLLM,
-    think:false,
-    messages: [
-      {
-        role: "user",
-        content: `
-Use the context to answer.
-
-Context:
-${context}
-
-Question:
-${question}
-`
-      }
-    ]
-  })
-
-  return res.message.content
-}*/
-
 export async function advancedQuery(question: string) 
 {
 
